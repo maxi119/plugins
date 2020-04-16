@@ -37,18 +37,30 @@ public class FlutterWebView implements PlatformView, MethodCallHandler {
       int id,
       Map<String, Object> params,
       View containerView) {
-
+   Context wrappedContext = wrapContext(context);
     DisplayListenerProxy displayListenerProxy = new DisplayListenerProxy();
     DisplayManager displayManager =
-        (DisplayManager) context.getSystemService(Context.DISPLAY_SERVICE);
+        (DisplayManager) wrappedContext.getSystemService(Context.DISPLAY_SERVICE);
     displayListenerProxy.onPreWebViewInitialization(displayManager);
-    webView = new InputAwareWebView(context, containerView);
+    webView = new InputAwareWebView(wrappedContext, containerView);
+    // temporary hotfix
+    // https://github.com/flutter/flutter/issues/34248
+    //webView = new InputAwareWebView(context, containerView);
+    
+    //Context activityContext = context;
+    //Context appContext = context.getApplicationContext();
+
+    //if (appContext != null) {
+    //    activityContext = appContext;
+    //}
+    //webView = new InputAwareWebView(activityContext, containerView);    
+    
+    
     displayListenerProxy.onPostWebViewInitialization(displayManager);
 
-    platformThreadHandler = new Handler(context.getMainLooper());
+    platformThreadHandler = new Handler(wrappedContext.getMainLooper());
     // Allow local storage.
     webView.getSettings().setDomStorageEnabled(true);
-    webView.getSettings().setJavaScriptCanOpenWindowsAutomatically(true);
 
     methodChannel = new MethodChannel(messenger, "plugins.flutter.io/webview_" + id);
     methodChannel.setMethodCallHandler(this);
@@ -321,4 +333,28 @@ public class FlutterWebView implements PlatformView, MethodCallHandler {
     webView.dispose();
     webView.destroy();
   }
+  
+  //https://github.com/flutter/plugins/commit/8fc8eb62edf39c1f8db8282c1a1d9661c5f734e2
+  private Context wrapContext(Context context) {
+    Context activityContext = context;
+    Context appContext = context.getApplicationContext();
+    if (appContext instanceof FlutterApplication) {
+      Activity currentActivity = ((FlutterApplication) appContext).getCurrentActivity();
+      if (currentActivity != null) {
+        activityContext = currentActivity;
+      }
+    }
+    final Context finalContext = activityContext;
+    // Cannot use activityContext, which will cause the keyboard to be unable to input.
+    // We have to wrap the original context.
+    return new ContextWrapper(context) {
+      @Override
+      public Object getSystemService(String name) {
+        if (name == Context.WINDOW_SERVICE) {
+          return finalContext.getSystemService(name);
+        }
+        return super.getSystemService(name);
+      }
+    };
+  }  
 }
